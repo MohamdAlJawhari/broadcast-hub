@@ -11,3 +11,157 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum UserStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  BLOCKED
+}
+
+enum ConnectionState {
+  CONNECTED
+  DISCONNECTED
+  CONNECTING
+  CONNECTION_ISSUE
+}
+
+enum BroadcastStatus {
+  RUNNING
+  PAUSED
+  STOPPED
+  COMPLETED
+}
+
+enum RecipientStatus {
+  PENDING
+  SUBMITTED
+  FAILED
+  SKIPPED
+}
+
+enum ErrorCategory {
+  CONNECTION
+  RATE_LIMIT
+  TIMEOUT
+  NOT_ON_WHATSAPP
+  MEDIA_UPLOAD
+  SUBMISSION
+  CANCELLED
+  INVALID_PHONE
+  UNKNOWN
+}
+
+model User {
+  id                 String     @id @default(uuid()) @db.Uuid
+  // TODO: kowercase email before saving
+  email              String     @unique
+  userName           String
+  phone              String
+  passwordHash       String
+  role               UserRole   @default(USER)
+  status             UserStatus @default(PENDING)
+  defaultCountryCode String     @default("+961")
+  createdAt          DateTime   @default(now()) @db.Timestamptz()
+
+  whatsappSession WhatsappSession?
+  contactLists    ContactList[]
+  attachments     Attachment[]
+  broadcasts      Broadcast[]
+
+  @@index([userName])
+}
+
+model WhatsappSession {
+  id                   Int             @id @default(autoincrement())
+  userId               String          @unique @db.Uuid
+  state                ConnectionState @default(DISCONNECTED)
+  credentialsEncrypted String?
+  updatedAt            DateTime        @default(now()) @updatedAt @db.Timestamptz()
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ContactList {
+  id          Int      @id @default(autoincrement())
+  userId      String   @db.Uuid
+  name        String
+  description String?
+  createdAt   DateTime @default(now()) @db.Timestamptz()
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contacts   Contact[]
+  broadcasts Broadcast[]
+
+  @@unique([userId, name])
+}
+
+model Contact {
+  id           Int     @id @default(autoincrement())
+  listId       Int
+  phoneNumber  String
+  isValid      Boolean @default(true)
+  customFields Json? // {"name": "jawad", "pass": "123"}
+
+  list ContactList @relation(fields: [listId], references: [id], onDelete: Cascade)
+
+  @@unique([listId, phoneNumber])
+}
+
+model Attachment {
+  id             Int      @id @default(autoincrement())
+  userId         String   @db.Uuid
+  storagePath    String
+  attachmentType String
+  originalName   String
+  sizeBytes      BigInt
+  createdAt      DateTime @default(now()) @db.Timestamptz()
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  broadcasts Broadcast[]
+
+  @@index([userId])
+}
+
+model Broadcast {
+  id           Int             @id @default(autoincrement())
+  userId       String          @db.Uuid
+  listId       Int? // list used for this run
+  messageText  String // "Hello {{name}}, your password is {{pass}}"
+  attachmentId Int? // optional; multiple broadcasts can share it
+  status       BroadcastStatus
+  pauseReason  String?
+  startedAt    DateTime        @default(now()) @db.Timestamptz()
+  endedAt      DateTime?       @db.Timestamptz()
+
+  user       User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  list       ContactList?         @relation(fields: [listId], references: [id], onDelete: SetNull)
+  attachment Attachment?          @relation(fields: [attachmentId], references: [id], onDelete: SetNull)
+  recipients BroadcastRecipient[]
+
+  @@index([userId])
+  @@index([listId])
+  @@index([attachmentId])
+}
+
+model BroadcastRecipient {
+  id            Int             @id @default(autoincrement())
+  broadcastId   Int
+  phoneNumber   String // snapshot of the contact's phone
+  customFields  Json? // snapshot, used for retry file and CSV report
+  status        RecipientStatus @default(PENDING)
+  errorCategory ErrorCategory? // for admin summaries
+  errorMessage  String?
+  failureReason String?
+  processedAt   DateTime?       @db.Timestamptz()
+
+  broadcast Broadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+
+  @@unique([broadcastId, phoneNumber])
+  @@index([broadcastId, status])
+}
