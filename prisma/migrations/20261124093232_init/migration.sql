@@ -1,50 +1,35 @@
-/*
-  Warnings:
+-- CreateEnum
+CREATE TYPE "UserRole" AS ENUM ('USER', 'ADMIN');
 
-  - You are about to drop the column `created_at` on the `User` table. All the data in the column will be lost.
-  - You are about to drop the column `default_country_code` on the `User` table. All the data in the column will be lost.
-  - You are about to drop the column `password_hash` on the `User` table. All the data in the column will be lost.
-  - You are about to drop the column `user_name` on the `User` table. All the data in the column will be lost.
-  - You are about to drop the `WhatsappSessions` table. If the table is not empty, all the data it contains will be lost.
-  - You are about to drop the `attachments` table. If the table is not empty, all the data it contains will be lost.
-  - You are about to drop the `broadcast_recipients` table. If the table is not empty, all the data it contains will be lost.
-  - You are about to drop the `broadcasts` table. If the table is not empty, all the data it contains will be lost.
-  - You are about to drop the `contact_list` table. If the table is not empty, all the data it contains will be lost.
-  - You are about to drop the `contacts` table. If the table is not empty, all the data it contains will be lost.
-  - Added the required column `passwordHash` to the `User` table without a default value. This is not possible if the table is not empty.
-  - Added the required column `userName` to the `User` table without a default value. This is not possible if the table is not empty.
+-- CreateEnum
+CREATE TYPE "UserStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED', 'BLOCKED');
 
-*/
--- DropIndex
-DROP INDEX "User_user_name_idx";
+-- CreateEnum
+CREATE TYPE "ConnectionState" AS ENUM ('CONNECTED', 'DISCONNECTED', 'CONNECTING', 'CONNECTION_ISSUE');
 
--- AlterTable
-ALTER TABLE "User" DROP COLUMN "created_at",
-DROP COLUMN "default_country_code",
-DROP COLUMN "password_hash",
-DROP COLUMN "user_name",
-ADD COLUMN     "createdAt" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-ADD COLUMN     "defaultCountryCode" TEXT NOT NULL DEFAULT '+961',
-ADD COLUMN     "passwordHash" TEXT NOT NULL,
-ADD COLUMN     "userName" TEXT NOT NULL;
+-- CreateEnum
+CREATE TYPE "BroadcastStatus" AS ENUM ('RUNNING', 'PAUSED', 'STOPPED', 'COMPLETED');
 
--- DropTable
-DROP TABLE "WhatsappSessions";
+-- CreateEnum
+CREATE TYPE "RecipientStatus" AS ENUM ('PENDING', 'SUBMITTED', 'FAILED', 'SKIPPED');
 
--- DropTable
-DROP TABLE "attachments";
+-- CreateEnum
+CREATE TYPE "ErrorCategory" AS ENUM ('CONNECTION', 'RATE_LIMIT', 'TIMEOUT', 'NOT_ON_WHATSAPP', 'MEDIA_UPLOAD', 'SUBMISSION', 'CANCELLED', 'INVALID_PHONE', 'UNKNOWN');
 
--- DropTable
-DROP TABLE "broadcast_recipients";
+-- CreateTable
+CREATE TABLE "User" (
+    "id" UUID NOT NULL,
+    "email" TEXT NOT NULL,
+    "userName" TEXT NOT NULL,
+    "phone" TEXT NOT NULL,
+    "passwordHash" TEXT NOT NULL,
+    "role" "UserRole" NOT NULL DEFAULT 'USER',
+    "status" "UserStatus" NOT NULL DEFAULT 'PENDING',
+    "defaultCountryCode" TEXT NOT NULL DEFAULT '+961',
+    "createdAt" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
--- DropTable
-DROP TABLE "broadcasts";
-
--- DropTable
-DROP TABLE "contact_list";
-
--- DropTable
-DROP TABLE "contacts";
+    CONSTRAINT "User_pkey" PRIMARY KEY ("id")
+);
 
 -- CreateTable
 CREATE TABLE "WhatsappSession" (
@@ -96,10 +81,9 @@ CREATE TABLE "Attachment" (
 CREATE TABLE "Broadcast" (
     "id" SERIAL NOT NULL,
     "userId" UUID NOT NULL,
-    "listId" INTEGER NOT NULL,
+    "listId" INTEGER,
     "messageText" TEXT NOT NULL,
     "attachmentId" INTEGER,
-    "attachmentType" TEXT,
     "status" "BroadcastStatus" NOT NULL,
     "pauseReason" TEXT,
     "startedAt" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -115,12 +99,19 @@ CREATE TABLE "BroadcastRecipient" (
     "phoneNumber" TEXT NOT NULL,
     "customFields" JSONB,
     "status" "RecipientStatus" NOT NULL DEFAULT 'PENDING',
-    "errorCategory" TEXT,
+    "errorCategory" "ErrorCategory",
+    "errorMessage" TEXT,
     "failureReason" TEXT,
     "processedAt" TIMESTAMPTZ,
 
     CONSTRAINT "BroadcastRecipient_pkey" PRIMARY KEY ("id")
 );
+
+-- CreateIndex
+CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
+
+-- CreateIndex
+CREATE INDEX "User_userName_idx" ON "User"("userName");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "WhatsappSession_userId_key" ON "WhatsappSession"("userId");
@@ -144,10 +135,10 @@ CREATE INDEX "Broadcast_listId_idx" ON "Broadcast"("listId");
 CREATE INDEX "Broadcast_attachmentId_idx" ON "Broadcast"("attachmentId");
 
 -- CreateIndex
-CREATE INDEX "BroadcastRecipient_broadcastId_idx" ON "BroadcastRecipient"("broadcastId");
+CREATE INDEX "BroadcastRecipient_broadcastId_status_idx" ON "BroadcastRecipient"("broadcastId", "status");
 
 -- CreateIndex
-CREATE INDEX "User_userName_idx" ON "User"("userName");
+CREATE UNIQUE INDEX "BroadcastRecipient_broadcastId_phoneNumber_key" ON "BroadcastRecipient"("broadcastId", "phoneNumber");
 
 -- AddForeignKey
 ALTER TABLE "WhatsappSession" ADD CONSTRAINT "WhatsappSession_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -165,7 +156,7 @@ ALTER TABLE "Attachment" ADD CONSTRAINT "Attachment_userId_fkey" FOREIGN KEY ("u
 ALTER TABLE "Broadcast" ADD CONSTRAINT "Broadcast_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Broadcast" ADD CONSTRAINT "Broadcast_listId_fkey" FOREIGN KEY ("listId") REFERENCES "ContactList"("id") ON DELETE NO ACTION ON UPDATE CASCADE;
+ALTER TABLE "Broadcast" ADD CONSTRAINT "Broadcast_listId_fkey" FOREIGN KEY ("listId") REFERENCES "ContactList"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Broadcast" ADD CONSTRAINT "Broadcast_attachmentId_fkey" FOREIGN KEY ("attachmentId") REFERENCES "Attachment"("id") ON DELETE SET NULL ON UPDATE CASCADE;

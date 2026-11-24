@@ -3,7 +3,6 @@
 
 // Get a free hosted Postgres database in seconds: `npx create-db`
 
-// npx prisma format / npx prisma validate / npx prisma migrate dev --name {commit_message} / npx prisma studio 
 generator client {
   provider = "prisma-client"
   output   = "../generated/prisma"
@@ -46,8 +45,21 @@ enum RecipientStatus {
   SKIPPED
 }
 
+enum ErrorCategory {
+  CONNECTION
+  RATE_LIMIT
+  TIMEOUT
+  NOT_ON_WHATSAPP
+  MEDIA_UPLOAD
+  SUBMISSION
+  CANCELLED
+  INVALID_PHONE
+  UNKNOWN
+}
+
 model User {
   id                 String     @id @default(uuid()) @db.Uuid
+  // TODO: kowercase email before saving
   email              String     @unique
   userName           String
   phone              String
@@ -117,19 +129,18 @@ model Attachment {
 }
 
 model Broadcast {
-  id             Int             @id @default(autoincrement())
-  userId         String          @db.Uuid
-  listId         Int // list used for this run
-  messageText    String // "Hello {{name}}, your password is {{pass}}"
-  attachmentId   Int? // optional; multiple broadcasts can share it
-  attachmentType String?
-  status         BroadcastStatus
-  pauseReason    String?
-  startedAt      DateTime        @default(now()) @db.Timestamptz()
-  endedAt        DateTime?       @db.Timestamptz()
+  id           Int             @id @default(autoincrement())
+  userId       String          @db.Uuid
+  listId       Int? // list used for this run
+  messageText  String // "Hello {{name}}, your password is {{pass}}"
+  attachmentId Int? // optional; multiple broadcasts can share it
+  status       BroadcastStatus
+  pauseReason  String?
+  startedAt    DateTime        @default(now()) @db.Timestamptz()
+  endedAt      DateTime?       @db.Timestamptz()
 
   user       User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  list       ContactList          @relation(fields: [listId], references: [id], onDelete: NoAction)
+  list       ContactList?         @relation(fields: [listId], references: [id], onDelete: SetNull)
   attachment Attachment?          @relation(fields: [attachmentId], references: [id], onDelete: SetNull)
   recipients BroadcastRecipient[]
 
@@ -144,11 +155,13 @@ model BroadcastRecipient {
   phoneNumber   String // snapshot of the contact's phone
   customFields  Json? // snapshot, used for retry file and CSV report
   status        RecipientStatus @default(PENDING)
-  errorCategory String? // for admin summaries
+  errorCategory ErrorCategory? // for admin summaries
+  errorMessage  String?
   failureReason String?
   processedAt   DateTime?       @db.Timestamptz()
 
   broadcast Broadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
 
-  @@index([broadcastId])
+  @@unique([broadcastId, phoneNumber])
+  @@index([broadcastId, status])
 }
